@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Meshtastic MQTT Manual</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --fg: #c9d1d9;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --border: #30363d;
+    --code-bg: #161b22;
+    --warn: #d2991d;
+    --danger: #f85149;
+    --ok: #3fb950;
+    --h2: #e6edf3;
+    --h3: #c9d1d9;
+    --table-stripe: #161b22;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.6;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem;
+  }
+  h1 { color: var(--accent); font-size: 1.75rem; border-bottom: 2px solid var(--border); padding-bottom: 0.5rem; margin: 2rem 0 1rem; }
+  h1:first-of-type { margin-top: 0; }
+  h2 { color: var(--h2); font-size: 1.3rem; margin: 2rem 0 0.75rem; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; }
+  h3 { color: var(--h3); font-size: 1.1rem; margin: 1.5rem 0 0.5rem; }
+  p { margin: 0.75rem 0; }
+  ul, ol { margin: 0.5rem 0 0.5rem 1.5rem; }
+  li { margin: 0.3rem 0; }
+  code { background: var(--code-bg); padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.9em; font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace; }
+  pre { background: var(--code-bg); padding: 1rem; border-radius: 6px; overflow-x: auto; margin: 1rem 0; border: 1px solid var(--border); }
+  pre code { background: none; padding: 0; font-size: 0.85em; }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+  th, td { text-align: left; padding: 0.5rem 0.75rem; border: 1px solid var(--border); }
+  th { background: var(--code-bg); color: var(--h2); font-weight: 600; }
+  tr:nth-child(even) td { background: var(--table-stripe); }
+  .note { background: #1a2332; border-left: 4px solid var(--accent); padding: 0.75rem 1rem; margin: 1rem 0; border-radius: 0 4px 4px 0; }
+  .warn { background: #2d1f0e; border-left: 4px solid var(--warn); padding: 0.75rem 1rem; margin: 1rem 0; border-radius: 0 4px 4px 0; }
+  .danger { background: #2d0e0e; border-left: 4px solid var(--danger); padding: 0.75rem 1rem; margin: 1rem 0; border-radius: 0 4px 4px 0; }
+  .toc { background: var(--code-bg); padding: 1rem 1.25rem; border-radius: 6px; margin: 1rem 0; border: 1px solid var(--border); }
+  .toc ol { margin: 0.5rem 0 0.5rem 1.25rem; }
+  .toc a { color: var(--accent); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  .mode-badge { display: inline-block; padding: 0.1em 0.6em; border-radius: 999px; font-size: 0.8em; font-weight: 600; color: #fff; margin-left: 0.5em; }
+  .mode-badge.proto { background: #7c3aed; }
+  .mode-badge.json { background: #059669; }
+  .mode-badge.proxy { background: #d97706; }
+  .mode-badge.direct { background: #2563eb; }
+  footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.85em; }
+</style>
+</head>
+<body>
+
+<h1>Meshtastic MQTT Manual</h1>
+<p>Technical reference for Meshtastic MQTT — all transport modes, payload formats, broker configuration, and platform support. Written in Simplified Technical English. Based on firmware source analysis (meshtastic/firmware master, circa 2.7.x).</p>
+
+<div class="toc">
+<strong>Contents</strong>
+<ol>
+  <li><a href="#mqtt-modes">MQTT Modes</a></li>
+  <li><a href="#config-settings">Configuration Settings</a></li>
+  <li><a href="#channel-settings">Channel Uplink and Downlink</a></li>
+  <li><a href="#topic-structure">MQTT Topic Structure</a></li>
+  <li><a href="#json-downlink">JSON Downlink &mdash; Sending to the Mesh</a></li>
+  <li><a href="#json-uplink">JSON Uplink &mdash; Node to Broker</a></li>
+  <li><a href="#protobuf-format">Protobuf (Binary) Format</a></li>
+  <li><a href="#node-id">Node ID Format</a></li>
+  <li><a href="#board-support">Board Support</a></li>
+  <li><a href="#client-proxy">Client Proxy Mode</a></li>
+  <li><a href="#tls">TLS</a></li>
+  <li><a href="#broker-bridging">Mosquitto Broker Bridging</a></li>
+  <li><a href="#community-brokers">Community Broker Defaults</a></li>
+  <li><a href="#dedup">Message Deduplication</a></li>
+  <li><a href="#map-reports">Map Reports</a></li>
+  <li><a href="#portnum">PortNum Reference</a></li>
+  <li><a href="#payload-limits">Payload Size Limits</a></li>
+  <li><a href="#pitfalls">Operational Pitfalls</a></li>
+</ol>
+</div>
+
+<h2 id="mqtt-modes">1. MQTT Modes</h2>
+
+<p>Meshtastic firmware uses MQTT in two dimensions: <strong>transport</strong> and <strong>payload format</strong>. These dimensions are independent.</p>
+
+<h3>1.1 Transport Modes</h3>
+
+<table>
+<tr><th>Mode</th><th>Setting</th><th>Description</th></tr>
+<tr>
+  <td><strong>Direct</strong> <span class="mode-badge direct">DIRECT</span></td>
+  <td><code>proxy_to_client_enabled: false</code></td>
+  <td>The radio connects to the MQTT broker using its own WiFi or Ethernet interface. The radio runs the MQTT client in its firmware and publishes/subscribes directly.</td>
+</tr>
+<tr>
+  <td><strong>Client Proxy</strong> <span class="mode-badge proxy">PROXY</span></td>
+  <td><code>proxy_to_client_enabled: true</code></td>
+  <td>A connected device (phone, tablet, web client) connects to the broker and forwards MQTT traffic for the radio. The radio&#39;s own MQTT client stays dormant.</td>
+</tr>
+</table>
+
+<h3>1.2 Payload Formats</h3>
+
+<table>
+<tr><th>Format</th><th>Setting</th><th>Description</th></tr>
+<tr>
+  <td><strong>Protobuf (binary)</strong> <span class="mode-badge proto">PROTO</span></td>
+  <td><code>json_enabled: false</code></td>
+  <td>Encoded ServiceEnvelope protobuf messages. Raw binary payload on MQTT. Requires protobuf decoding to read. Default format.</td>
+</tr>
+<tr>
+  <td><strong>JSON</strong> <span class="mode-badge json">JSON</span></td>
+  <td><code>json_enabled: true</code></td>
+  <td>Human-readable JSON payload. Easier to integrate with external systems. Not available on nRF52 platform unless compiled with <code>NRF52_USE_JSON</code>.</td>
+</tr>
+</table>
+
+<h2 id="config-settings">2. Configuration Settings</h2>
+
+<p>Configure MQTT with the Meshtastic CLI. Chain multiple settings in one command to prevent a reboot between each setting.</p>
+
+<pre><code># All MQTT settings
+meshtastic --set mqtt.enabled true \
+  --set mqtt.address mqtt.gwyn.tel \
+  --set mqtt.username meshdev \
+  --set mqtt.password '&lt;pass&gt;' \
+  --set mqtt.root 'msh/US/bayarea' \
+  --set mqtt.tls_enabled true \
+  --set mqtt.encryption_enabled true \
+  --set mqtt.json_enabled true \
+  --set mqtt.proxy_to_client_enabled false \
+  --set mqtt.map_reporting_enabled false</code></pre>
+
+<table>
+<tr><th>Setting</th><th>Type</th><th>Default</th><th>Description</th></tr>
+<tr><td><code>mqtt.enabled</code></td><td>bool</td><td>false</td><td>Turns the MQTT module on or off.</td></tr>
+<tr><td><code>mqtt.address</code></td><td>string</td><td><code>mqtt.meshtastic.org</code></td><td>MQTT broker hostname or IP address.</td></tr>
+<tr><td><code>mqtt.username</code></td><td>string</td><td><code>meshdev</code></td><td>MQTT broker username.</td></tr>
+<tr><td><code>mqtt.password</code></td><td>string</td><td><code>large4cats</code></td><td>MQTT broker password.</td></tr>
+<tr><td><code>mqtt.root</code></td><td>string</td><td><code>msh</code></td><td>Root topic prefix for all MQTT messages. Case-sensitive.</td></tr>
+<tr><td><code>mqtt.tls_enabled</code></td><td>bool</td><td>false</td><td>Uses TLS to encrypt the connection. Port changes to 8883.</td></tr>
+<tr><td><code>mqtt.encryption_enabled</code></td><td>bool</td><td>false</td><td>Encrypts MQTT payload at the transport layer. When false, decoded MeshPackets are sent.</td></tr>
+<tr><td><code>mqtt.json_enabled</code></td><td>bool</td><td>false</td><td>Enables JSON uplink and downlink on MQTT. Required for JSON-based integrations.</td></tr>
+<tr><td><code>mqtt.proxy_to_client_enabled</code></td><td>bool</td><td>false</td><td>Routes MQTT traffic through a connected device instead of connecting directly.</td></tr>
+<tr><td><code>mqtt.map_reporting_enabled</code></td><td>bool</td><td>false</td><td>Sends periodic map reports to the MQTT broker. Available from firmware 2.3.2.</td></tr>
+</table>
+
+<h2 id="channel-settings">3. Channel Uplink and Downlink</h2>
+
+<p>Each channel has independent MQTT forwarding controls. At least one channel must have uplink or downlink enabled for the MQTT module to connect.</p>
+
+<table>
+<tr><th>Setting</th><th>Direction</th><th>Description</th></tr>
+<tr><td><code>uplink_enabled: true</code></td><td>Radio &rarr; Broker</td><td>The radio forwards messages from this channel to the MQTT broker.</td></tr>
+<tr><td><code>downlink_enabled: true</code></td><td>Broker &rarr; Radio</td><td>The radio receives messages from the broker and injects them onto this channel.</td></tr>
+</table>
+
+<pre><code># Set per-channel MQTT settings
+meshtastic --host &lt;ip&gt; --ch-index 0 --ch-set uplink_enabled true
+meshtastic --host &lt;ip&gt; --ch-index 0 --ch-set downlink_enabled false</code></pre>
+
+<div class="warn"><strong>Warning:</strong> The CLI uses <strong>snake_case</strong> for channel settings (<code>downlink_enabled</code>), not camelCase (<code>downlinkEnabled</code>). The wrong case causes a silent failure.</div>
+
+<div class="danger"><strong>Danger:</strong> Do not enable downlink on the primary channel (index 0) when connected to a community broker. Downlink on the primary channel injects internet-sourced traffic onto the local radio mesh. This floods the mesh with distant traffic.</div>
+
+<h2 id="topic-structure">4. MQTT Topic Structure</h2>
+
+<p>The firmware constructs MQTT topics from the <code>mqtt.root</code> setting. The binary segment is <code>/2/c/</code> (for &ldquo;crypt&rdquo;).</p>
+
+<pre><code>{root}/2/c/{channelName}/{nodeId}    &mdash; Protobuf uplink
+{root}/2/json/{channelName}/{nodeId} &mdash; JSON uplink
+{root}/2/c/{channelName}/+           &mdash; Protobuf downlink subscription
+{root}/2/json/{channelName}/+        &mdash; JSON downlink subscription
+{root}/2/map/                        &mdash; Map reports
+{root}/2/c/PKI/{nodeId}              &mdash; PKI-encrypted uplink
+{root}/2/c/PKI/+                     &mdash; PKI downlink subscription</code></pre>
+
+<h3>Channel Name in Topics</h3>
+
+<p>The channel name segment (<code>{channelName}</code>) comes from <code>channels.getGlobalId(chIndex)</code>:</p>
+<ul>
+  <li><strong>Unnamed primary channel (index 0):</strong> Uses the modem preset name (for example, <code>LongFast</code> or <code>MediumFast</code>).</li>
+  <li><strong>Named channels:</strong> Uses the channel name string (for example, <code>test</code>, <code>mqtt</code>).</li>
+  <li><strong>PKI-encrypted packets:</strong> Uses <code>PKI</code> as the channel name.</li>
+</ul>
+
+<h3>Example with <code>root=msh/US/bayarea</code></h3>
+
+<pre><code>Subscribe (protobuf):  msh/US/bayarea/2/c/mqtt/+
+Subscribe (JSON):      msh/US/bayarea/2/json/mqtt/+
+Subscribe (all ch):    msh/US/bayarea/2/c/#
+Uplink (protobuf):     msh/US/bayarea/2/c/mqtt/!c1fc9198
+Uplink (JSON):         msh/US/bayarea/2/json/mqtt/!c1fc9198
+Publish JSON downlink: msh/US/bayarea/2/json/mqtt/&lt;gateway_id&gt;</code></pre>
+
+<h2 id="json-downlink">5. JSON Downlink &mdash; Sending to the Mesh</h2>
+
+<p>JSON downlink sends text or position packets from the internet onto the mesh via MQTT.</p>
+
+<h3>Requirements</h3>
+<ol>
+  <li><code>mqtt.json_enabled</code> must be <code>true</code>.</li>
+  <li>A channel must be named <strong><code>&quot;mqtt&quot;</code></strong> (case-insensitive). The firmware checks this with <code>strncasecmp</code>.</li>
+  <li>That channel must have <code>downlink_enabled</code> set to <code>true</code>.</li>
+  <li>Publish JSON to the topic <code>{root}/2/json/mqtt/&lt;gateway_id&gt;</code>.</li>
+</ol>
+
+<h3>JSON Envelope Validation</h3>
+
+<p>The firmware validates incoming JSON with these rules (from <code>isValidJsonEnvelope</code>):</p>
+<ul>
+  <li><strong><code>from</code></strong> &mdash; Required. Must be a number equal to the node&#39;s own decimal node number. This is a security check.</li>
+  <li><strong><code>type</code></strong> &mdash; Required. Must be <code>&quot;sendtext&quot;</code> or <code>&quot;sendposition&quot;</code>.</li>
+  <li><strong><code>payload</code></strong> &mdash; Required. String for sendtext, object for sendposition.</li>
+  <li><strong><code>sender</code></strong> &mdash; Optional. If present, must differ from the node&#39;s own ID (loop prevention).</li>
+  <li><strong><code>hopLimit</code></strong> &mdash; Optional. Must be a number if present.</li>
+</ul>
+
+<h3>sendtext Schema</h3>
+
+<pre><code>{
+  "from": 3254555032,
+  "type": "sendtext",
+  "payload": "Hello mesh!",
+  "channel": 2,
+  "to": 4294967295,
+  "hopLimit": 3,
+  "sender": "!gw01"
+}</code></pre>
+
+<table>
+<tr><th>Field</th><th>Required</th><th>Type</th><th>Description</th></tr>
+<tr><td><code>from</code></td><td>Yes</td><td>number (uint32)</td><td>Must equal the node&#39;s own decimal number. Security check.</td></tr>
+<tr><td><code>type</code></td><td>Yes</td><td>string</td><td>Must be <code>"sendtext"</code> or <code>"sendposition"</code>.</td></tr>
+<tr><td><code>payload</code></td><td>Yes</td><td>string/object</td><td>Message text or position data.</td></tr>
+<tr><td><code>channel</code></td><td>No</td><td>number</td><td>Channel index (0-7). Defaults to 0 (primary).</td></tr>
+<tr><td><code>to</code></td><td>No</td><td>number</td><td>Destination node. 4294967295 = broadcast.</td></tr>
+<tr><td><code>hopLimit</code></td><td>No</td><td>number</td><td>Remaining hop count for radio forwarding.</td></tr>
+<tr><td><code>sender</code></td><td>No</td><td>string</td><td>Gateway ID for loop prevention.</td></tr>
+</table>
+
+<h3>sendposition Schema</h3>
+
+<pre><code>{
+  "from": 3254555032,
+  "type": "sendposition",
+  "payload": {
+    "latitude_i": 377743000,
+    "longitude_i": -1224194000,
+    "altitude": 10,
+    "time": 1689235200
+  },
+  "channel": 2,
+  "to": 4294967295
+}</code></pre>
+
+<h2 id="json-uplink">6. JSON Uplink &mdash; Node to Broker</h2>
+
+<p>When <code>json_enabled</code> is <code>true</code>, the firmware publishes JSON-formatted messages for each packet it forwards to the broker.</p>
+
+<pre><code>{
+  "id": 1234567,
+  "timestamp": 1689235200,
+  "to": 4294967295,
+  "from": 3254555032,
+  "channel": 2,
+  "type": "text",
+  "sender": "!c1fc9198",
+  "rssi": -45,
+  "snr": 9.5,
+  "hops_away": 1,
+  "hop_start": 3,
+  "payload": {
+    "text": "Hello from the mesh!"
+  }
+}</code></pre>
+
+<div class="note"><strong>Note:</strong> If the text payload is itself valid JSON, the firmware places the raw JSON directly in <code>&quot;payload&quot;</code> instead of wrapping it in <code>{&quot;text&quot;: &quot;...&quot;}</code>.</div>
+
+<h2 id="protobuf-format">7. Protobuf (Binary) Format</h2>
+
+<p>The binary MQTT path uses the ServiceEnvelope protobuf message, published as raw bytes (not base64).</p>
+
+<pre><code>message ServiceEnvelope {
+  MeshPacket packet     = 1;
+  string channel_id     = 2;   // Channel name (e.g. "mqtt", "LongFast")
+  string gateway_id     = 3;   // Sending gateway node ID (e.g. "!c1fc9198")
+}</code></pre>
+
+<table>
+<tr><th>Setting</th><th>MQTT Payload Content</th></tr>
+<tr><td><code>encryption_enabled: false</code> (default)</td><td>Decoded MeshPackets. TEXT_MESSAGE_APP payloads are readable without channel key.</td></tr>
+<tr><td><code>encryption_enabled: true</code></td><td>Encrypted MeshPackets. Requires the channel AES key to decrypt.</td></tr>
+</table>
+
+<h2 id="node-id">8. Node ID Format</h2>
+
+<p>Node IDs use the format <code>!XXXXXXXX</code> where <code>XXXXXXXX</code> is an 8-character lowercase hex string representing a 32-bit unsigned integer.</p>
+
+<pre><code>Node ID string:  !c1fc9198
+Node number hex: 0xc1fc9198
+Node number dec: 3254555032
+
+# Parse in Python:
+nodeNum = int(nodeIdString[-8:], 16)
+
+# Format in Python:
+nodeId = "!%08x" % nodeNum</code></pre>
+
+<table>
+<tr><th>Node ID</th><th>Node Number</th><th>Meaning</th></tr>
+<tr><td><code>!ffffffff</code></td><td>4294967295</td><td>Broadcast (all nodes)</td></tr>
+<tr><td><code>!00000000</code></td><td>0</td><td>Local/source node</td></tr>
+</table>
+
+<p>The node number is derived from the last 4 bytes of the device MAC address.</p>
+
+<h2 id="board-support">9. Board Support</h2>
+
+<table>
+<tr><th>Board Type</th><th>Examples</th><th>WiFi</th><th>Eth</th><th>JSON</th><th>TLS</th><th>Direct MQTT</th></tr>
+<tr>
+  <td><strong>ESP32</strong></td>
+  <td>XIAO S3, RAK, Heltec, T-Beam</td>
+  <td>Yes</td>
+  <td>Varies</td>
+  <td>Yes</td>
+  <td>Yes</td>
+  <td>Yes</td>
+</tr>
+<tr>
+  <td><strong>nRF52</strong></td>
+  <td>RAK4631</td>
+  <td>No</td>
+  <td>No</td>
+  <td>No*</td>
+  <td>No</td>
+  <td>No &mdash; proxy only</td>
+</tr>
+<tr>
+  <td><strong>Portduino</strong></td>
+  <td>Linux device simulator</td>
+  <td>Sim</td>
+  <td>Sim</td>
+  <td>Yes</td>
+  <td>Yes</td>
+  <td>Yes</td>
+</tr>
+</table>
+
+<h3>nRF52 Limitations</h3>
+<ul>
+  <li>No WiFi or Ethernet &mdash; cannot connect to a broker directly.</li>
+  <li>Must use <strong>client proxy</strong>. The firmware rejects any configuration where <code>enabled: true</code> and <code>proxy_to_client_enabled: false</code>.</li>
+  <li>JSON not supported unless compiled with <code>NRF52_USE_JSON</code> flag.</li>
+  <li>The phone app handles all MQTT traffic for nRF52 radios.</li>
+</ul>
+
+<h3>ESP32 Notes</h3>
+<ul>
+  <li>XIAO S3: Bluetooth is automatically disabled when WiFi is active (shared radio).</li>
+  <li>TLS uses <code>setInsecure()</code> &mdash; no certificate validation in firmware.</li>
+  <li>MQTT buffer: 1024 bytes (<code>pubSub.setBufferSize(1024, 1024)</code>).</li>
+  <li>Reconnect: 5 attempts, then triggers a WiFi reconnect cycle.</li>
+  <li>TCP connections are flagged as &ldquo;EXPENSIVE&rdquo; in firmware &mdash; retry interval is 30 seconds on failure.</li>
+</ul>
+
+<h2 id="client-proxy">10. Client Proxy Mode</h2>
+
+<h3>When enabled (<code>proxy_to_client_enabled: true</code>)</h3>
+<ul>
+  <li>The radio does <strong>not</strong> connect to the broker.</li>
+  <li>The phone app (Android or iOS) connects to the broker using the radio&#39;s credentials.</li>
+  <li>Broker client ID: <code>MeshtasticAppleMqttProxy-!nodeId</code> or <code>MeshtasticAndroidMqttProxy-!nodeId</code>.</li>
+  <li>The radio publishes through a proxy message queue to the phone app, which forwards to MQTT.</li>
+</ul>
+
+<h3>When disabled (<code>proxy_to_client_enabled: false</code>)</h3>
+<ul>
+  <li>The radio connects directly to the broker using WiFi or Ethernet.</li>
+  <li>Broker client ID: <code>!nodeId</code> (for example, <code>!c1fc9198</code>).</li>
+  <li>The subscribe and publish operations both run inside the firmware.</li>
+  <li>The run loop polls at 200ms when connected, retries at 30 seconds on failure.</li>
+</ul>
+
+<div class="warn"><strong>Common fault:</strong> If the radio shows correct MQTT config but never connects to the broker, check <code>proxy_to_client_enabled</code> first. When this is <code>true</code>, the radio&#39;s own MQTT client stays dormant and the phone app must proxy. No connection attempt appears in broker logs.</div>
+
+<h2 id="tls">11. TLS</h2>
+
+<ul>
+  <li><code>tls_enabled: true</code> &rarr; port 8883.</li>
+  <li><code>tls_enabled: false</code> &rarr; port 1883.</li>
+  <li>The firmware uses <code>setInsecure()</code> &mdash; no certificate validation.</li>
+  <li>TLS is not supported on nRF52. The firmware rejects <code>tls_enabled: true</code> on platforms without <code>MQTT_SUPPORTS_TLS</code>.</li>
+</ul>
+
+<h2 id="broker-bridging">12. Mosquitto Broker Bridging</h2>
+
+<p>A Mosquitto bridge connects a local broker to a community mesh broker. The bridge forwards selected channel traffic in both directions.</p>
+
+<h3>Bridge Configuration Example</h3>
+
+<pre><code>connection baymesh-bridge
+address mqtt.bayme.sh:1883
+topic msh/US/bayarea/2/c/MediumFast/# both 0
+topic msh/US/bayarea/2/c/test/# both 0
+topic msh/US/bayarea/2/json/# both 0
+clientid gwyntel-bridge
+remote_username meshdev
+remote_password large4cats
+start_type automatic
+notifications true
+notifications_local_only true
+cleansession true
+keepalive_interval 60</code></pre>
+
+<h3>Per-Channel Bridge Exclusion</h3>
+
+<p>Mosquitto <code>topic</code> directives support MQTT wildcards (<code>+</code>, <code>#</code>) but do <strong>not</strong> support exclusions. To keep a channel private:</p>
+
+<ol>
+  <li>Replace the catch-all <code>#</code> wildcard with explicit per-channel topic lines.</li>
+  <li>Omit the private channel from the topic list.</li>
+  <li>Channels that are not listed stay local to the broker.</li>
+</ol>
+
+<pre><code># Forward LongFast, test, and JSON — but NOT mqtt or gwn channels:
+topic msh/US/bayarea/2/c/LongFast/# both 0
+topic msh/US/bayarea/2/c/test/# both 0
+topic msh/US/bayarea/2/json/# both 0</code></pre>
+
+<div class="note"><strong>Safety note:</strong> New channels are private by default. You must add a <code>topic</code> line to forward them. This is a feature, not a bug.</div>
+
+<h2 id="community-brokers">13. Community Broker Defaults</h2>
+
+<table>
+<tr><th>Setting</th><th>Default</th></tr>
+<tr><td>Public broker</td><td><code>mqtt.meshtastic.org</code></td></tr>
+<tr><td>Username</td><td><code>meshdev</code></td></tr>
+<tr><td>Password</td><td><code>large4cats</code></td></tr>
+<tr><td>Default root</td><td><code>msh</code></td></tr>
+</table>
+
+<p>Community brokers use shared credentials. These are <strong>not</strong> IoT default passwords subject to CA SB-327. They are community credentials intentionally published for open mesh participation. Your own broker should use a randomly generated password.</p>
+
+<div class="warn"><strong>Root topic is case-sensitive.</strong> <code>msh/US/bayarea</code> is not the same as <code>msh/us/bayarea</code>. If the node&#39;s root does not match the community broker&#39;s topic hierarchy, traffic silently goes nowhere.</div>
+
+<h2 id="dedup">14. Message Deduplication</h2>
+
+<p>MQTT QoS 1 guarantees at-least-once delivery. A Mosquitto bridge can echo messages, causing the same packet to arrive multiple times. To prevent duplicate processing:</p>
+
+<ul>
+  <li>Use the <code>id</code> field from the JSON uplink as a per-packet deduplication key.</li>
+  <li>Maintain a cache of recently seen packet IDs. A cache of 200 entries is sufficient.</li>
+  <li>Drop any packet whose <code>id</code> is already in the cache.</li>
+</ul>
+
+<h2 id="map-reports">15. Map Reports</h2>
+
+<p>When <code>map_reporting_enabled</code> is <code>true</code>, the node publishes periodic map reports to <code>{root}/2/map/</code>.</p>
+
+<p>Each report includes:</p>
+<ul>
+  <li>Node long name, short name, and ID</li>
+  <li>Position (with configurable precision) and altitude</li>
+  <li>Hardware model and role</li>
+  <li>Firmware version</li>
+  <li>LoRa region, modem preset, and primary channel name</li>
+  <li>Number of locally online nodes (last 2 hours, excluding MQTT-heard nodes)</li>
+</ul>
+
+<table>
+<tr><th>Setting</th><th>Default</th><th>Description</th></tr>
+<tr><td>Position precision</td><td>~1459m deviation</td><td>Obscures exact location.</td></tr>
+<tr><td>Publish interval</td><td>3600 seconds (1 hour)</td><td>Minimum value. Cannot be set lower.</td></tr>
+</table>
+
+<p>Map reports are <strong>unencrypted</strong> and visible on public maps. Available from firmware version 2.3.2.</p>
+
+<h2 id="portnum">16. PortNum Reference</h2>
+
+<p>Each MeshPacket carries a <code>portnum</code> in its <code>Data</code> field that identifies the application handler.</p>
+
+<table>
+<tr><th>Name</th><th>Value</th><th>Payload Encoding</th></tr>
+<tr><td>TEXT_MESSAGE_APP</td><td>1</td><td>UTF-8 plaintext (no protobuf wrapping)</td></tr>
+<tr><td>POSITION_APP</td><td>3</td><td>protobuf (Position)</td></tr>
+<tr><td>NODEINFO_APP</td><td>4</td><td>protobuf (User)</td></tr>
+<tr><td>ROUTING_APP</td><td>5</td><td>protobuf (Routing)</td></tr>
+<tr><td>ADMIN_APP</td><td>6</td><td>protobuf</td></tr>
+<tr><td>TELEMETRY_APP</td><td>67</td><td>protobuf (Telemetry)</td></tr>
+<tr><td>TRACEROUTE_APP</td><td>70</td><td>protobuf (RouteDiscovery)</td></tr>
+<tr><td>NEIGHBORINFO_APP</td><td>71</td><td>protobuf (NeighborInfo)</td></tr>
+<tr><td>MAP_REPORT_APP</td><td>73</td><td>protobuf (MapReport)</td></tr>
+</table>
+
+<h2 id="payload-limits">17. Payload Size Limits</h2>
+
+<ul>
+  <li><code>Data.payload.bytes</code> &mdash; limited to approximately 240 bytes (firmware constant).</li>
+  <li>JSON downlink text &mdash; checked: <code>jsonPayloadStr.length() &lt;= sizeof(p-&gt;decoded.payload.bytes)</code>.</li>
+  <li>MQTT buffer &mdash; 1024 bytes (<code>pubSub.setBufferSize(1024, 1024)</code>).</li>
+</ul>
+
+<h2 id="pitfalls">18. Operational Pitfalls</h2>
+
+<div class="danger"><strong>proxyToClientEnabled after reboot.</strong> This setting can revert to <code>true</code> after a reboot or a batch config write. Always verify after reboot:
+
+<pre><code>meshtastic --host &lt;ip&gt; --info 2>&amp;1 | grep proxyToClient</code></pre></div>
+
+<div class="warn"><strong>CLI socket error after config write.</strong> <code>OSError: [Errno 9] Bad file descriptor</code> is a known CLI bug. The config writes successfully before the error. Verify with <code>--info</code>.</div>
+
+<div class="warn"><strong>PSK via CLI fails.</strong> <code>--ch-set psk "TQ=="</code> fails with <code>expected bytes, str found</code>. Use the Python API for custom PSK values.</div>
+
+<div class="warn"><strong>--ch-set-url resets WiFi.</strong> Importing channels via URL resets <code>network.wifi_ssid</code> and <code>network.wifi_psk</code>. Re-apply WiFi settings after channel import. Also verify all channels imported &mdash; not all channels may transfer.</div>
+
+<div class="warn"><strong>hopLimit resets to 7.</strong> <code>lora.hop_limit</code> can revert to the firmware default (7) after config writes. Always re-verify.</div>
+
+<div class="danger"><strong>Do not modify radio MQTT config without explicit permission.</strong> Never change <code>mqtt.address</code>, <code>mqtt.tls_enabled</code>, <code>mqtt.port</code>, or <code>mqtt.root</code> on a working radio. If the radio fails to connect, check <code>proxyToClientEnabled</code> first.</div>
+
+<div class="danger"><strong>Do not subscribe to unencrypted or public MQTT topics.</strong> Subscribe only to the specific channel topic (for example, <code>msh/US/bayarea/2/json/mqtt/+</code>). Never use the <code>#</code> wildcard to subscribe to all topics.</div>
+
+<footer>
+  <p>Meshtastic MQTT Manual &mdash; firmware source analysis based on meshtastic/firmware master (circa 2.7.x).<br>
+  Hosted by <a href="https://github.com/gwyntel" style="color:var(--accent)">gwyntel</a> &middot; Generated <time id="gen-date"></time></p>
+</footer>
+
+<script>
+document.getElementById('gen-date').textContent = new Date().toISOString().split('T')[0];
+</script>
+
+</body>
+</html>
